@@ -18,6 +18,7 @@ function normalize(value: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+
 function getFingerprint(
   transaction: BankTransaction,
   bankAccountId: string,
@@ -28,6 +29,7 @@ function getFingerprint(
   const account = normalize(bankAccountId);
   const currency = transaction.currency.toUpperCase();
   const amount = transaction.amount.toString();
+  const direction = transaction.direction ?? "UNKNOWN";
 
   const reference = transaction.reference?.trim();
 
@@ -35,6 +37,7 @@ function getFingerprint(
     return {
       key: [
         account,
+        direction,
         "reference",
         normalize(reference),
         amount,
@@ -45,12 +48,12 @@ function getFingerprint(
   }
 
   const date = transaction.transactionDate.split("T")[0];
-
   const description = normalize(transaction.description);
 
   return {
     key: [
       account,
+      direction,
       "fingerprint",
       date,
       amount,
@@ -60,6 +63,7 @@ function getFingerprint(
     method: "TRANSACTION_FINGERPRINT",
   };
 }
+
 
 export function findDuplicateCandidates(
   transactions: BankTransaction[],

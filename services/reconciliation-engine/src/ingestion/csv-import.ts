@@ -1,7 +1,7 @@
 
 import Papa from "papaparse";
 import { randomUUID } from "node:crypto";
-import type { BankTransaction } from "./types/reconciliation";
+import type { BankTransaction } from "../types/reconciliation";
 
 
 

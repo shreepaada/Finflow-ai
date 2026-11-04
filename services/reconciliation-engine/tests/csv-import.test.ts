@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from "vitest";
-import { importBankCsv } from "../src/csv-import";
+import { importBankCsv } from "../src/ingestion/csv-import";
 
 
 

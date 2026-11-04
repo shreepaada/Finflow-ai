@@ -95,4 +95,32 @@ describe("findDuplicateCandidates", () => {
       findDuplicateCandidates([], ""),
     ).toThrow("Bank account ID is required.");
   });
+  
+it("does not treat an incoming credit and outgoing debit as duplicates", () => {
+  const transactions: BankTransaction[] = [
+    {
+      id: "TXN-001",
+      description: "AMAZON PAYMENT",
+      amount: 5000,
+      currency: "INR",
+      transactionDate: "2026-10-10",
+      reference: "REF-001",
+      direction: "DEBIT",
+    },
+    {
+      id: "TXN-002",
+      description: "AMAZON PAYMENT",
+      amount: 5000,
+      currency: "INR",
+      transactionDate: "2026-10-10",
+      reference: "REF-001",
+      direction: "CREDIT",
+    },
+  ];
+
+  expect(
+    findDuplicateCandidates(transactions, bankAccountId),
+  ).toHaveLength(0);
+});
+
 });
