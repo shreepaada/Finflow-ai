@@ -16,6 +16,7 @@ export interface BankTransaction {
   currency: string;
   transactionDate: string;
   reference?: string;
+  direction?: "DEBIT" | "CREDIT";
 }
 
 export type MatchType =
