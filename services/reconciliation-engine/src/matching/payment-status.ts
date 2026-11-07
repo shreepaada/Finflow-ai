@@ -3,7 +3,7 @@ import type {
   Invoice,
   PaymentAllocation,
   PaymentStatus,
-} from "../types/reconciliation";
+} from "../types/reconciliation.js";
 
 export interface PaymentStatusResult {
   invoiceId: string;

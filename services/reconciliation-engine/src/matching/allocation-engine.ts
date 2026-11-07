@@ -5,12 +5,12 @@ import type {
   Invoice,
   BankTransaction,
   PaymentAllocation,
-} from "../types/reconciliation";
+} from "../types/reconciliation.js";
 
 import {
   calculatePaymentStatus,
   type PaymentStatusResult,
-} from "./payment-status";
+} from "./payment-status.js";
 
 export interface AllocationException {
   transactionId: string;

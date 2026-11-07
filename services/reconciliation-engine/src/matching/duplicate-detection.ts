@@ -1,5 +1,5 @@
 
-import type { BankTransaction } from "../types/reconciliation";
+import type { BankTransaction } from "../types/reconciliation.js";
 
 export type DuplicateDetectionMethod =
   | "BANK_REFERENCE"

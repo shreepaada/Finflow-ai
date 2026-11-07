@@ -1,0 +1,447 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ------------------------------------
+// ENUMS
+// ------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  PROCESSED
+  FAILED
+  NEEDS_REVIEW
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING_REVIEW
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum BankAccountStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum StatementImportStatus {
+  UPLOADED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum TransactionDirection {
+  DEBIT
+  CREDIT
+}
+
+enum AllocationStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+enum ReconciliationRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum ExceptionType {
+  UNMATCHED_TRANSACTION
+  AMBIGUOUS_MATCH
+  POSSIBLE_DUPLICATE
+  INVALID_TRANSACTION
+  OVERPAYMENT
+  PARTIAL_PAYMENT
+}
+
+enum ExceptionStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  IGNORED
+}
+
+// ------------------------------------
+// USERS AND WORKSPACES
+// ------------------------------------
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  email        String  @unique
+  name         String?
+  passwordHash String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  memberships       WorkspaceMember[]
+  uploadedDocuments Document[]          @relation("DocumentUploader")
+  startedRuns       ReconciliationRun[] @relation("RunStarter")
+  auditLogs         AuditLog[]          @relation("AuditActor")
+}
+
+model Workspace {
+  id           String @id @default(uuid()) @db.Uuid
+  name         String
+  slug         String @unique
+  timezone     String @default("Asia/Kolkata")
+  baseCurrency String @default("INR") @db.VarChar(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  members            WorkspaceMember[]
+  vendors            Vendor[]
+  documents          Document[]
+  invoices           Invoice[]
+  bankAccounts       BankAccount[]
+  statementImports   StatementImport[]
+  bankTransactions   BankTransaction[]
+  paymentAllocations PaymentAllocation[]
+  reconciliationRuns ReconciliationRun[]
+  exceptions         ReconciliationException[]
+  auditLogs          AuditLog[]
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  userId      String        @db.Uuid
+  role        WorkspaceRole @default(MEMBER)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+// ------------------------------------
+// DOCUMENTS AND VENDORS
+// ------------------------------------
+
+model Document {
+  id           String  @id @default(uuid()) @db.Uuid
+  workspaceId  String  @db.Uuid
+  uploadedById String? @db.Uuid
+
+  fileName   String
+  mimeType   String
+  storageKey String
+  sha256     String?        @db.VarChar(64)
+  fileSize   BigInt
+  status     DocumentStatus @default(UPLOADED)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  uploadedBy User? @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  invoices Invoice[]
+
+  @@unique([workspaceId, storageKey])
+  @@index([workspaceId, status])
+}
+
+model Vendor {
+  id          String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+
+  name           String
+  normalizedName String
+  email          String?
+  taxIdentifier  String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  invoices Invoice[]
+
+  @@unique([workspaceId, normalizedName])
+  @@index([workspaceId])
+}
+
+// ------------------------------------
+// INVOICES AND LINE ITEMS
+// ------------------------------------
+
+model Invoice {
+  id          String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  vendorId    String @db.Uuid
+
+  sourceDocumentId String? @db.Uuid
+
+  invoiceNumber      String
+  vendorNameSnapshot String
+
+  amount   Decimal       @db.Decimal(19, 4)
+  currency String        @db.VarChar(3)
+  status   InvoiceStatus @default(PENDING_REVIEW)
+
+  issueDate DateTime  @db.Date
+  dueDate   DateTime? @db.Date
+
+  notes String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  sourceDocument Document? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+
+  lineItems   InvoiceLineItem[]
+  allocations PaymentAllocation[]
+  exceptions  ReconciliationException[]
+
+  @@unique([workspaceId, vendorId, invoiceNumber])
+  @@index([workspaceId, status])
+  @@index([workspaceId, dueDate])
+}
+
+model InvoiceLineItem {
+  id        String @id @default(uuid()) @db.Uuid
+  invoiceId String @db.Uuid
+
+  description String
+  quantity    Decimal? @db.Decimal(19, 4)
+  unitPrice   Decimal? @db.Decimal(19, 4)
+  lineTotal   Decimal  @db.Decimal(19, 4)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+// ------------------------------------
+// BANK ACCOUNTS AND CSV IMPORTS
+// ------------------------------------
+
+model BankAccount {
+  id          String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+
+  bankName     String
+  accountName  String?
+  accountLast4 String?
+  currency     String            @db.VarChar(3)
+  status       BankAccountStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  transactions BankTransaction[]
+  imports      StatementImport[]
+
+  @@index([workspaceId])
+}
+
+model StatementImport {
+  id            String @id @default(uuid()) @db.Uuid
+  workspaceId   String @db.Uuid
+  bankAccountId String @db.Uuid
+
+  fileName   String
+  fileSha256 String @db.VarChar(64)
+
+  status       StatementImportStatus @default(UPLOADED)
+  totalRows    Int                   @default(0)
+  importedRows Int                   @default(0)
+  rejectedRows Int                   @default(0)
+
+  importedAt DateTime @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  transactions BankTransaction[]
+
+  @@unique([bankAccountId, fileSha256])
+  @@index([workspaceId, importedAt])
+}
+
+// ------------------------------------
+// BANK TRANSACTIONS
+// ------------------------------------
+
+model BankTransaction {
+  id                String @id @default(uuid()) @db.Uuid
+  workspaceId       String @db.Uuid
+  bankAccountId     String @db.Uuid
+  statementImportId String @db.Uuid
+
+  sourceRow         Int
+  externalReference String?
+
+  description           String
+  normalizedDescription String
+
+  transactionDate DateTime @db.Date
+
+  amount    Decimal              @db.Decimal(19, 4)
+  currency  String               @db.VarChar(3)
+  direction TransactionDirection
+
+  fingerprint String
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  statementImport StatementImport @relation(fields: [statementImportId], references: [id], onDelete: Restrict)
+
+  allocation PaymentAllocation?
+  exceptions ReconciliationException[]
+
+  @@unique([statementImportId, sourceRow])
+  @@index([workspaceId, transactionDate])
+  @@index([bankAccountId, fingerprint])
+  @@index([externalReference])
+}
+
+// ------------------------------------
+// PAYMENT ALLOCATIONS
+// ------------------------------------
+
+model PaymentAllocation {
+  id            String  @id @default(uuid()) @db.Uuid
+  workspaceId   String  @db.Uuid
+  invoiceId     String  @db.Uuid
+  transactionId String  @unique @db.Uuid
+  runId         String? @db.Uuid
+
+  amount   Decimal @db.Decimal(19, 4)
+  currency String  @db.VarChar(3)
+
+  status      AllocationStatus @default(PROPOSED)
+  allocatedAt DateTime         @default(now()) @db.Timestamptz(6)
+  approvedAt  DateTime?        @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  transaction BankTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  run ReconciliationRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([invoiceId, allocatedAt])
+}
+
+// ------------------------------------
+// RECONCILIATION RUNS AND EXCEPTIONS
+// ------------------------------------
+
+model ReconciliationRun {
+  id          String  @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  startedById String? @db.Uuid
+
+  status      ReconciliationRunStatus @default(PENDING)
+  startedAt   DateTime                @default(now()) @db.Timestamptz(6)
+  completedAt DateTime?               @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  startedBy User? @relation("RunStarter", fields: [startedById], references: [id], onDelete: SetNull)
+
+  allocations PaymentAllocation[]
+  exceptions  ReconciliationException[]
+
+  @@index([workspaceId, startedAt])
+}
+
+model ReconciliationException {
+  id          String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  runId       String @db.Uuid
+
+  transactionId String? @db.Uuid
+  invoiceId     String? @db.Uuid
+
+  type   ExceptionType
+  status ExceptionStatus @default(OPEN)
+
+  reason         String
+  resolutionNote String?
+
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+  resolvedAt DateTime? @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  run ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  transaction BankTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status])
+  @@index([runId])
+}
+
+// ------------------------------------
+// AUDIT LOGS
+// ------------------------------------
+
+model AuditLog {
+  id          String  @id @default(uuid()) @db.Uuid
+  workspaceId String  @db.Uuid
+  actorId     String? @db.Uuid
+
+  action     String
+  entityType String
+  entityId   String
+
+  details Json? @db.JsonB
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([entityType, entityId])
+}
