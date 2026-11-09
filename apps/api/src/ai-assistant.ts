@@ -7,6 +7,10 @@ const AssistantState = Annotation.Root({
   workspaceId: Annotation<string>({ reducer: (_, update) => update, default: () => "" }),
   question: Annotation<string>({ reducer: (_, update) => update, default: () => "" }),
   financialContext: Annotation<string>({ reducer: (_, update) => update, default: () => "" }),
+  ragContext: Annotation<string>({
+  reducer: (_, update) => update,
+  default: () => "",
+}),
   answer: Annotation<string>({ reducer: (_, update) => update, default: () => "" }),
 });
 
@@ -345,6 +349,10 @@ Financial context:
 
 ${state.financialContext}
 
+Retrieved document context:
+
+${state.ragContext || "No relevant documents were retrieved."}
+
 User question:
 
 ${state.question}
@@ -371,8 +379,14 @@ const assistantGraph = new StateGraph(AssistantState)
 // PUBLIC FUNCTION
 export async function askFinFlowAI(
   workspaceId: string,
-  question: string
+  question: string,
+  retrievalContext = ""
 ): Promise<string> {
-  const result = await assistantGraph.invoke({ workspaceId, question });
+  const result = await assistantGraph.invoke({
+    workspaceId,
+    question,
+    ragContext: retrievalContext,
+  });
+
   return result.answer;
 }

@@ -44,6 +44,17 @@ function App() {
   ]);
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantUseRag, setAssistantUseRag] = useState(false);
+  const [assistantUseTools, setAssistantUseTools] = useState(false);
+  const [documents, setDocuments] = useState([]);
+  const [documentFile, setDocumentFile] = useState(null);
+  const [documentUploading, setDocumentUploading] = useState(false);
+  const [documentMessage, setDocumentMessage] = useState("");
+  const [exceptionInsight, setExceptionInsight] = useState("");
+  const [exceptionInsightLoading, setExceptionInsightLoading] = useState(false);
+  const [exceptionInsightError, setExceptionInsightError] = useState("");
+ 
+  
 
   async function request(path) {
     const response = await fetch(`${API_URL}${path}`);
@@ -232,8 +243,32 @@ function App() {
       case "Audit Log":
         loadAuditLogs();
         break;
+      case "Documents":
+        loadDocuments();
+        break;
       default:
         break;
+    }
+  }
+
+  async function requestExceptionInsight() {
+    if (!selected?.id || exceptionInsightLoading) return;
+    setExceptionInsight("");
+    setExceptionInsightError("");
+    setExceptionInsightLoading(true);
+    try {
+      const response = await fetch(`${API_URL}${BASE}/assistant/exception-insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exceptionId: selected.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Insight request failed (${response.status}).`);
+      setExceptionInsight(result.insight || "No insight returned.");
+    } catch (err) {
+      setExceptionInsightError(err.message || "Could not generate exception insight.");
+    } finally {
+      setExceptionInsightLoading(false);
     }
   }
 
@@ -1249,6 +1284,104 @@ function App() {
     );
   }
 
+  async function loadDocuments() {
+    try {
+      const response = await fetch(`${API_URL}${BASE}/documents`);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not load documents.");
+      setDocuments(result.documents || []);
+    } catch (err) {
+      setDocumentMessage(err.message || "Could not load documents.");
+    }
+  }
+
+  async function uploadDocument() {
+    if (!documentFile || documentUploading) return;
+    setDocumentUploading(true);
+    setDocumentMessage("");
+    try {
+      const formData = new FormData();
+      formData.append("file", documentFile);
+      const response = await fetch(`${API_URL}${BASE}/documents`, {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Upload failed (${response.status}).`);
+      setDocumentMessage(`Indexed ${result.document?.fileName || documentFile.name} (${result.chunkCount} chunks).`);
+      setDocumentFile(null);
+      const input = document.getElementById("finflow-document-file");
+      if (input) input.value = "";
+      await loadDocuments();
+    } catch (err) {
+      setDocumentMessage(err.message || "Document upload failed.");
+    } finally {
+      setDocumentUploading(false);
+    }
+  }
+
+  function renderDocuments() {
+    return (
+      <>
+        {heading(
+          "FINFLOW AI",
+          "Financial Documents",
+          "Upload PDF, TXT, or CSV files to make them searchable by the RAG assistant.",
+          null,
+          false
+        )}
+        <div className="table-card" style={{ maxWidth: 1000, padding: 24 }}>
+          <h2 style={{ marginTop: 0 }}>Upload a document</h2>
+          <p style={{ color: "#64748b", lineHeight: 1.6 }}>
+            Files are stored locally and indexed into a workspace-specific vector store.
+            Maximum upload size: 10 MB. Scanned PDFs without selectable text are not supported yet.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+            <input
+              id="finflow-document-file"
+              type="file"
+              accept=".pdf,.txt,.csv,application/pdf,text/plain,text/csv"
+              onChange={(event) => setDocumentFile(event.target.files?.[0] || null)}
+            />
+            <button className="resolve-button" onClick={uploadDocument} disabled={!documentFile || documentUploading}>
+              {documentUploading ? "Uploading and indexing…" : "Upload & index"}
+            </button>
+            <button className="refresh-button" onClick={loadDocuments}>Refresh documents</button>
+          </div>
+          {documentMessage && <p role="status" style={{ marginTop: 14, color: documentMessage.startsWith("Indexed") ? "#067647" : "#b42318" }}>{documentMessage}</p>}
+        </div>
+
+        <div className="table-card" style={{ maxWidth: 1000, marginTop: 20 }}>
+          <div className="table-header">
+            <div><h2>Uploaded documents</h2><p>Only documents marked PROCESSED are indexed for retrieval.</p></div>
+            <span className="record-count">{documents.length} documents</span>
+          </div>
+          {documents.length === 0 ? (
+            <div style={{ padding: 24, color: "#64748b" }}>
+              No documents listed yet. Upload a document, then refresh this list.
+            </div>
+          ) : (
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>File</th><th>Type</th><th>Status</th><th>Uploaded</th></tr></thead>
+                <tbody>
+                  {documents.map((doc) => (
+                    <tr key={doc.id}>
+                      <td>{doc.fileName}</td>
+                      <td>{doc.mimeType}</td>
+                      <td>{doc.status}</td>
+                      <td>{doc.createdAt ? new Date(doc.createdAt).toLocaleString() : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
   async function sendAssistantMessage(event) {
     event?.preventDefault();
     const question = assistantQuestion.trim();
@@ -1264,7 +1397,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `${API_URL}${BASE}/assistant/chat`,
+        `${API_URL}${BASE}/assistant/${assistantUseRag ? "rag-chat" : assistantUseTools ? "agent-chat" : "chat"}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1284,6 +1417,8 @@ function App() {
         {
           role: "assistant",
           content: result.answer || "The assistant returned an empty response.",
+          sources: result.sources || [],
+          toolsUsed: result.toolsUsed || [],
         },
       ]);
     } catch (err) {
@@ -1316,6 +1451,20 @@ function App() {
             <div>
               <h2>Workspace Assistant</h2>
               <p>Read-only assistance · Answers are based on workspace data</p>
+              <label style={{ display: "inline-flex", gap: 8, alignItems: "center", marginTop: 8, fontSize: 13 }}>
+                <input type="checkbox" checked={assistantUseRag} onChange={(event) => {
+                  setAssistantUseRag(event.target.checked);
+                  if (event.target.checked) setAssistantUseTools(false);
+                }} />
+                Include uploaded documents (RAG)
+              </label>
+              <label style={{ display: "inline-flex", gap: 8, alignItems: "center", marginTop: 8, marginLeft: 14, fontSize: 13 }}>
+                <input type="checkbox" checked={assistantUseTools} onChange={(event) => {
+                  setAssistantUseTools(event.target.checked);
+                  if (event.target.checked) setAssistantUseRag(false);
+                }} />
+                Allow read-only tool calls
+              </label>
             </div>
             <span className="record-count">Local AI</span>
           </div>
@@ -1354,6 +1503,21 @@ function App() {
                   {message.role === "user" ? "YOU" : "FINFLOW AI"}
                 </div>
                 {message.content}
+                {message.toolsUsed?.length > 0 && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#64748b" }}>
+                    Read-only tools used: {message.toolsUsed.join(", ")}
+                  </div>
+                )}
+                {message.sources?.length > 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e2e8f0", fontSize: 12 }}>
+                    <strong>Retrieved sources:</strong>
+                    {message.sources.map((source, sourceIndex) => (
+                      <div key={`${source.documentId}-${sourceIndex}`} style={{ marginTop: 4 }}>
+                        {source.fileName} {source.documentId ? `(document ${source.documentId.slice(0, 8)})` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
 
@@ -1415,6 +1579,8 @@ function App() {
         return renderAuditLog();
       case "AI Assistant":
         return renderAssistant();
+      case "Documents":
+        return renderDocuments();
       default:
         return renderOverview();
     }
@@ -1443,6 +1609,7 @@ function App() {
             ["Exceptions", "⚠"],
             ["Audit Log", "◷"],
             ["AI Assistant", "✦"],
+            ["Documents", "▧"],
           ].map(([page, icon]) => (
             <button
               key={page}
@@ -1477,7 +1644,7 @@ function App() {
       </main>
 
       {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
+        <div className="modal-overlay" onClick={() => { setSelected(null); setExceptionInsight(""); setExceptionInsightError(""); }}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -1487,7 +1654,7 @@ function App() {
 
               <button
                 className="close-button"
-                onClick={() => setSelected(null)}
+                onClick={() => { setSelected(null); setExceptionInsight(""); setExceptionInsightError(""); }}
               >
                 ×
               </button>
@@ -1533,6 +1700,21 @@ function App() {
               )}
 
               <div className="detail-section">
+                <label>AI Reconciliation Insight</label>
+                <button
+                  className="secondary-button"
+                  onClick={requestExceptionInsight}
+                  disabled={exceptionInsightLoading}
+                  style={{ marginBottom: 10 }}
+                >
+                  {exceptionInsightLoading ? "Analyzing exception…" : "Explain with FinFlow AI"}
+                </button>
+                {exceptionInsightError && <div className="reason-box" style={{ color: "#b42318" }}>{exceptionInsightError}</div>}
+                {exceptionInsight && <div className="reason-box" style={{ whiteSpace: "pre-wrap" }}>{exceptionInsight}</div>}
+                <small style={{ color: "#64748b" }}>Advisory only. This does not resolve the exception or change financial records.</small>
+              </div>
+
+              <div className="detail-section">
                 <label>Resolution Note</label>
                 <textarea
                   value={resolutionNote}
@@ -1546,7 +1728,7 @@ function App() {
             <div className="modal-footer">
               <button
                 className="cancel-button"
-                onClick={() => setSelected(null)}
+                onClick={() => { setSelected(null); setExceptionInsight(""); setExceptionInsightError(""); }}
               >
                 Close
               </button>
