@@ -211,17 +211,6 @@ Uploaded documents and generated vector indexes are runtime data. They should no
 - The demo workspace ID currently used in the frontend should be treated as a local/demo configuration, not a production identity.
 - This project is a portfolio prototype and has not been represented as audited, secure, or production-ready financial software.
 
-## Roadmap
-
-- [ ] Add a polished end-to-end demo and screenshots
-- [ ] Improve setup documentation and environment validation
-- [ ] Make API URL, CORS origin, and demo workspace configurable
-- [ ] Add authentication and authorization before handling real financial data
-- [ ] Add integration tests for database-backed workflows
-- [ ] Add observability and structured logging
-- [ ] Improve document lifecycle handling and cleanup
-- [ ] Add deployment guidance for a secure demo environment
-
 ## Contributing
 
 This is currently a personal portfolio project. Issues and suggestions are welcome.
